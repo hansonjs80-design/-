@@ -1,20 +1,37 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# React + TypeScript + Vite 편집 그리드 앱
 
-# Run and deploy your AI Studio app
+엑셀처럼 편집 가능한 그리드 UI와 타이머를 포함한 웹앱입니다.
 
-This contains everything you need to run your app locally.
+## 기능
 
-View your app in AI Studio: https://ai.studio/apps/drive/1P1vnj16XR2LYSNfn0RBTfpgx9cVRcIJT
+- 셀 편집
+- 셀 복사/붙여넣기 (Ctrl/Cmd + C, Ctrl/Cmd + V)
+- 행 추가 / 열 추가
+- 드롭다운 컬럼 제공 (`상태`: 대기/진행/완료)
+- 타이머: 시작 / 정지 / 리셋, 남은시간 표시
+- 남은시간이 0초가 되면 브라우저 TTS로 `타이머 종료` 음성 안내
+- 그리드/타이머 데이터를 `localStorage`에 자동 저장
+- 구글 스프레드시트 Sheet ID/GID로 CSV 형식 불러오기(초기 포맷 가져오기)
 
-## Run Locally
+## 실행 방법
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+npm run dev
+```
+
+기본 개발 서버 주소: `http://localhost:5173`
+
+## 빌드
+
+```bash
+npm run build
+npm run preview
+```
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 구글 시트 형식 가져오기
+
+1. 상단 `구글 시트 형식 가져오기` 영역에서 Sheet ID와 GID를 입력합니다.
+2. `시트 형식 가져오기` 버튼을 누르면 CSV를 읽어 현재 그리드에 반영합니다.
+3. 시트가 비공개면 불러오기가 실패하므로 링크 공유 권한(보기)을 열어야 합니다.
