@@ -14,6 +14,8 @@ type TimerState = {
 const GRID_STORAGE_KEY = 'sheet-grid-v2';
 const TIMER_STORAGE_KEY = 'sheet-timer-v2';
 const STATUS_OPTIONS: Status[] = ['대기', '진행', '완료'];
+const DEFAULT_SHEET_ID = '1SihxjHGyf1OcxlG3SyfLRMtxkYb62KRM72-ZvH4devQ';
+const DEFAULT_GID = '0';
 
 const createRows = (rowCount: number, colCount: number): RowData[] =>
   Array.from({ length: rowCount }, () =>
@@ -26,15 +28,54 @@ const toTimerText = (seconds: number) => {
   return `${min}:${sec}`;
 };
 
+const normalizeRows = (rows: RowData[]): RowData[] => {
+  if (!rows.length) return createRows(6, 4);
+  const maxCol = Math.max(2, ...rows.map((r) => r.length));
+  return rows.map((r) => [...r, ...Array.from({ length: maxCol - r.length }, () => '')]);
+};
+
+const parseCsv = (text: string): RowData[] =>
+  text
+    .replace(/\r/g, '')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const cols: string[] = [];
+      let current = '';
+      let quote = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+        if (char === '"') {
+          if (quote && line[i + 1] === '"') {
+            current += '"';
+            i += 1;
+          } else {
+            quote = !quote;
+          }
+        } else if (char === ',' && !quote) {
+          cols.push(current);
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cols.push(current);
+      return cols;
+    });
+
 export default function App() {
   const [grid, setGrid] = useState<RowData[]>(() => createRows(6, 4));
   const [selected, setSelected] = useState<{ row: number; col: number } | null>(null);
+  const [sheetId, setSheetId] = useState(DEFAULT_SHEET_ID);
+  const [gid, setGid] = useState(DEFAULT_GID);
+  const [importState, setImportState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [importMessage, setImportMessage] = useState('');
+
   const [timer, setTimer] = useState<TimerState>({
     initialSeconds: 300,
     remainingSeconds: 300,
     running: false,
   });
-
 
   useEffect(() => {
     const savedGrid = localStorage.getItem(GRID_STORAGE_KEY);
@@ -42,8 +83,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(savedGrid) as RowData[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const maxCol = Math.max(...parsed.map((r) => r.length), 2);
-          setGrid(parsed.map((r) => [...r, ...Array.from({ length: maxCol - r.length }, () => '')]));
+          setGrid(normalizeRows(parsed));
         }
       } catch {
         // ignore corrupted data
@@ -153,9 +193,60 @@ export default function App() {
     applyPaste(event.clipboardData.getData('text/plain'));
   };
 
+  const importFromGoogleSheet = async () => {
+    setImportState('loading');
+    setImportMessage('구글 시트 형식을 불러오는 중...');
+
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`불러오기 실패 (${response.status})`);
+      }
+
+      const csv = await response.text();
+      const rows = parseCsv(csv);
+      if (!rows.length) {
+        throw new Error('시트 데이터가 비어 있습니다.');
+      }
+
+      setGrid(normalizeRows(rows));
+      setSelected(null);
+      setImportState('success');
+      setImportMessage(`형식을 가져왔습니다. (${rows.length}행)`);
+    } catch (error) {
+      setImportState('error');
+      setImportMessage(
+        error instanceof Error
+          ? `${error.message}. 시트 공유 권한(링크 있는 사용자 보기) 또는 CORS/네트워크를 확인하세요.`
+          : '형식을 가져오지 못했습니다.'
+      );
+    }
+  };
+
   return (
     <main className="app">
       <h1>React + TypeScript + Vite 그리드</h1>
+
+      <section className="card">
+        <h2>구글 시트 형식 가져오기</h2>
+        <div className="import-row">
+          <label>
+            Sheet ID
+            <input value={sheetId} onChange={(e) => setSheetId(e.target.value.trim())} />
+          </label>
+          <label>
+            GID
+            <input value={gid} onChange={(e) => setGid(e.target.value.trim())} />
+          </label>
+          <button onClick={importFromGoogleSheet} disabled={!sheetId || !gid || importState === 'loading'}>
+            {importState === 'loading' ? '불러오는 중...' : '시트 형식 가져오기'}
+          </button>
+        </div>
+        {importMessage ? (
+          <p className={`hint ${importState === 'error' ? 'error' : ''}`}>{importMessage}</p>
+        ) : null}
+      </section>
 
       <section className="card">
         <div className="toolbar">
@@ -210,7 +301,6 @@ export default function App() {
             </tbody>
           </table>
         </div>
-        <p className="hint">셀을 클릭해 선택한 뒤, Ctrl/Cmd + C / Ctrl/Cmd + V 또는 버튼으로 복사/붙여넣기할 수 있습니다.</p>
       </section>
 
       <section className="card">

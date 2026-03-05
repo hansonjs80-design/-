@@ -106,3 +106,27 @@ td select:focus {
   width: 110px;
   padding: 4px;
 }
+
+
+.import-row {
+  display: grid;
+  grid-template-columns: 1fr 140px auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.import-row label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.import-row input {
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
+.hint.error {
+  color: #b91c1c;
+}
