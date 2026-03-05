@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AgGridReact } from 'ag-grid-react';
-import type { ColDef } from 'ag-grid-community';
-import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-alpine.css';
 import './App.css';
 
-type GridRow = Record<string, string>;
+type Status = '대기' | '진행' | '완료';
+type CellValue = string;
+type RowData = CellValue[];
 
 type TimerState = {
   initialSeconds: number;
@@ -13,94 +11,63 @@ type TimerState = {
   running: boolean;
 };
 
-const GRID_STORAGE_KEY = 'spreadsheet-grid-data-v1';
-const TIMER_STORAGE_KEY = 'spreadsheet-timer-data-v1';
+const GRID_STORAGE_KEY = 'sheet-grid-v2';
+const TIMER_STORAGE_KEY = 'sheet-timer-v2';
+const STATUS_OPTIONS: Status[] = ['대기', '진행', '완료'];
 
-const createColumn = (index: number): ColDef<GridRow> => {
-  const field = `col_${index}`;
-  return {
-    headerName: index === 1 ? '상태' : `열 ${index}`,
-    field,
-    editable: true,
-    cellEditor: index === 1 ? 'agSelectCellEditor' : undefined,
-    cellEditorParams:
-      index === 1
-        ? {
-            values: ['대기', '진행', '완료'],
-          }
-        : undefined,
-  };
+const createRows = (rowCount: number, colCount: number): RowData[] =>
+  Array.from({ length: rowCount }, () =>
+    Array.from({ length: colCount }, (_, c) => (c === 1 ? '대기' : ''))
+  );
+
+const toTimerText = (seconds: number) => {
+  const min = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const sec = String(seconds % 60).padStart(2, '0');
+  return `${min}:${sec}`;
 };
 
-const ensureShape = (rows: GridRow[], columnCount: number): GridRow[] =>
-  rows.map((row) => {
-    const next: GridRow = { ...row };
-    for (let i = 0; i < columnCount; i += 1) {
-      const key = `col_${i}`;
-      if (typeof next[key] !== 'string') {
-        next[key] = '';
-      }
-    }
-    return next;
-  });
-
-const defaultRows = (rowCount = 5, columnCount = 3): GridRow[] =>
-  Array.from({ length: rowCount }, () => {
-    const row: GridRow = {};
-    for (let i = 0; i < columnCount; i += 1) {
-      row[`col_${i}`] = i === 1 ? '대기' : '';
-    }
-    return row;
-  });
-
 export default function App() {
-  const [columnCount, setColumnCount] = useState(3);
-  const [rowData, setRowData] = useState<GridRow[]>(() => defaultRows());
+  const [grid, setGrid] = useState<RowData[]>(() => createRows(6, 4));
+  const [selected, setSelected] = useState<{ row: number; col: number } | null>(null);
   const [timer, setTimer] = useState<TimerState>({
     initialSeconds: 300,
     remainingSeconds: 300,
     running: false,
   });
 
-  useEffect(() => {
-    const saved = localStorage.getItem(GRID_STORAGE_KEY);
-    if (!saved) return;
 
-    try {
-      const parsed = JSON.parse(saved) as { columnCount: number; rowData: GridRow[] };
-      const loadedColumnCount = Math.max(2, parsed.columnCount ?? 3);
-      setColumnCount(loadedColumnCount);
-      setRowData(ensureShape(parsed.rowData ?? defaultRows(), loadedColumnCount));
-    } catch {
-      setColumnCount(3);
-      setRowData(defaultRows());
+  useEffect(() => {
+    const savedGrid = localStorage.getItem(GRID_STORAGE_KEY);
+    if (savedGrid) {
+      try {
+        const parsed = JSON.parse(savedGrid) as RowData[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const maxCol = Math.max(...parsed.map((r) => r.length), 2);
+          setGrid(parsed.map((r) => [...r, ...Array.from({ length: maxCol - r.length }, () => '')]));
+        }
+      } catch {
+        // ignore corrupted data
+      }
+    }
+
+    const savedTimer = localStorage.getItem(TIMER_STORAGE_KEY);
+    if (savedTimer) {
+      try {
+        const parsed = JSON.parse(savedTimer) as TimerState;
+        setTimer({
+          initialSeconds: Math.max(0, Number(parsed.initialSeconds) || 300),
+          remainingSeconds: Math.max(0, Number(parsed.remainingSeconds) || 300),
+          running: Boolean(parsed.running),
+        });
+      } catch {
+        // ignore corrupted data
+      }
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      GRID_STORAGE_KEY,
-      JSON.stringify({
-        columnCount,
-        rowData,
-      })
-    );
-  }, [columnCount, rowData]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(TIMER_STORAGE_KEY);
-    if (!saved) return;
-    try {
-      const parsed = JSON.parse(saved) as TimerState;
-      setTimer({
-        initialSeconds: Math.max(0, parsed.initialSeconds ?? 300),
-        remainingSeconds: Math.max(0, parsed.remainingSeconds ?? 300),
-        running: Boolean(parsed.running),
-      });
-    } catch {
-      setTimer({ initialSeconds: 300, remainingSeconds: 300, running: false });
-    }
-  }, []);
+    localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(grid));
+  }, [grid]);
 
   useEffect(() => {
     localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(timer));
@@ -111,13 +78,14 @@ export default function App() {
 
     const id = window.setInterval(() => {
       setTimer((prev) => {
-        const next = Math.max(prev.remainingSeconds - 1, 0);
+        const next = Math.max(0, prev.remainingSeconds - 1);
         if (next === 0 && prev.running) {
           window.speechSynthesis.cancel();
-          const message = new SpeechSynthesisUtterance('타이머 종료');
-          message.lang = 'ko-KR';
-          window.speechSynthesis.speak(message);
+          const utterance = new SpeechSynthesisUtterance('타이머 종료');
+          utterance.lang = 'ko-KR';
+          window.speechSynthesis.speak(utterance);
         }
+
         return {
           ...prev,
           remainingSeconds: next,
@@ -126,75 +94,126 @@ export default function App() {
       });
     }, 1000);
 
-    return () => window.clearInterval(id);
+    return () => clearInterval(id);
   }, [timer.running, timer.remainingSeconds]);
 
-  const columnDefs = useMemo(() => {
-    const cols: ColDef<GridRow>[] = [];
-    for (let i = 0; i < columnCount; i += 1) {
-      cols.push(createColumn(i));
-    }
-    return cols;
-  }, [columnCount]);
+  const columnCount = useMemo(() => (grid[0]?.length ? grid[0].length : 2), [grid]);
 
-  const addRow = () => {
-    setRowData((prev) => {
-      const row: GridRow = {};
-      for (let i = 0; i < columnCount; i += 1) {
-        row[`col_${i}`] = i === 1 ? '대기' : '';
-      }
-      return [...prev, row];
-    });
-  };
-
-  const addColumn = () => {
-    setColumnCount((prev) => {
-      const next = prev + 1;
-      setRowData((rows) =>
-        rows.map((row) => ({
-          ...row,
-          [`col_${next - 1}`]: '',
-        }))
-      );
+  const setCell = (row: number, col: number, value: string) => {
+    setGrid((prev) => {
+      const next = prev.map((r) => [...r]);
+      next[row][col] = value;
       return next;
     });
   };
 
-  const format = (seconds: number) => {
-    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-    const s = String(seconds % 60).padStart(2, '0');
-    return `${m}:${s}`;
+  const addRow = () => {
+    setGrid((prev) => [...prev, Array.from({ length: columnCount }, (_, c) => (c === 1 ? '대기' : ''))]);
+  };
+
+  const addColumn = () => {
+    setGrid((prev) => prev.map((r) => [...r, '']));
+  };
+
+  const handleCopy = async () => {
+    if (!selected) return;
+    const value = grid[selected.row]?.[selected.col] ?? '';
+    await navigator.clipboard.writeText(value);
+  };
+
+  const applyPaste = (text: string) => {
+    if (!selected) return;
+    const rows = text.replace(/\r/g, '').split('\n').filter((line) => line.length > 0);
+    const matrix = rows.map((line) => line.split('\t'));
+
+    setGrid((prev) => {
+      const next = prev.map((r) => [...r]);
+      matrix.forEach((line, rIdx) => {
+        line.forEach((val, cIdx) => {
+          const rr = selected.row + rIdx;
+          const cc = selected.col + cIdx;
+          if (rr < next.length && cc < columnCount) {
+            next[rr][cc] = val;
+          }
+        });
+      });
+      return next;
+    });
+  };
+
+  const handlePaste = async () => {
+    if (!selected) return;
+    const text = await navigator.clipboard.readText();
+    applyPaste(text);
+  };
+
+  const handleTablePaste: React.ClipboardEventHandler<HTMLTableElement> = (event) => {
+    if (!selected) return;
+    event.preventDefault();
+    applyPaste(event.clipboardData.getData('text/plain'));
   };
 
   return (
     <main className="app">
-      <h1>React + TS + Vite 편집 그리드</h1>
+      <h1>React + TypeScript + Vite 그리드</h1>
 
-      <section className="panel">
+      <section className="card">
         <div className="toolbar">
           <button onClick={addRow}>행 추가</button>
           <button onClick={addColumn}>열 추가</button>
+          <button onClick={handleCopy} disabled={!selected}>선택 셀 복사</button>
+          <button onClick={handlePaste} disabled={!selected}>선택 셀 붙여넣기</button>
         </div>
-        <div className="ag-theme-alpine grid-wrap">
-          <AgGridReact
-            rowData={rowData}
-            columnDefs={columnDefs}
-            stopEditingWhenCellsLoseFocus
-            enableRangeSelection
-            onCellValueChanged={({ data, rowIndex }) => {
-              if (rowIndex == null) return;
-              setRowData((prev) => {
-                const next = [...prev];
-                next[rowIndex] = data;
-                return next;
-              });
-            }}
-          />
+        <div className="table-wrap">
+          <table onPaste={handleTablePaste}>
+            <thead>
+              <tr>
+                {Array.from({ length: columnCount }, (_, c) => (
+                  <th key={`head-${c}`}>{c === 1 ? '상태' : `열 ${c + 1}`}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grid.map((row, rIdx) => (
+                <tr key={`row-${rIdx}`}>
+                  {row.map((cell, cIdx) => {
+                    const isStatus = cIdx === 1;
+                    const active = selected?.row === rIdx && selected?.col === cIdx;
+                    return (
+                      <td
+                        key={`cell-${rIdx}-${cIdx}`}
+                        className={active ? 'selected' : ''}
+                        onClick={() => setSelected({ row: rIdx, col: cIdx })}
+                      >
+                        {isStatus ? (
+                          <select
+                            value={STATUS_OPTIONS.includes(cell as Status) ? cell : '대기'}
+                            onChange={(e) => setCell(rIdx, cIdx, e.target.value)}
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            value={cell}
+                            onChange={(e) => setCell(rIdx, cIdx, e.target.value)}
+                          />
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <p className="hint">복사/붙여넣기는 셀 선택 후 Ctrl/Cmd + C, Ctrl/Cmd + V를 사용하세요.</p>
+        <p className="hint">셀을 클릭해 선택한 뒤, Ctrl/Cmd + C / Ctrl/Cmd + V 또는 버튼으로 복사/붙여넣기할 수 있습니다.</p>
       </section>
 
-      <section className="panel">
+      <section className="card">
         <h2>타이머</h2>
         <div className="timer-row">
           <label>
@@ -213,7 +232,7 @@ export default function App() {
               }}
             />
           </label>
-          <strong>{format(timer.remainingSeconds)}</strong>
+          <strong>{toTimerText(timer.remainingSeconds)}</strong>
         </div>
         <div className="toolbar">
           <button onClick={() => setTimer((prev) => ({ ...prev, running: true }))} disabled={timer.remainingSeconds <= 0}>
